@@ -1,0 +1,147 @@
+
+
+#!/bin/bash
+
+# Paramater
+#  $1: 0|1|2   0: ssh-gen 1: test 2: setup crontab
+#  $2: log server ip address
+#  $3: scp port
+#  $4: user name
+#  $5 log path on log server
+#  $6 crontab minute hour
+#  $7 crontab hour
+
+SSH_KEY_PATH="/home/whz/.ssh/"
+#SSH_KEY_PATH="/home/vpnmanager/.ssh/"
+SSH_KEY_NAME="thinclsvpn.key"
+SSH_KEY="$SSH_KEY_PATH$SSH_KEY_NAME"
+VPN_USER="whz"
+VPN_LOG_FILE="/var/log/openvpn/*.log"
+
+#if [ `whoami` != "root" ]; then
+#  echo "Execute this script as root user." >&2
+#  exit 1
+#fi
+
+function ssh_gen () {
+  # if ssh_key already exist, delete it.
+  if [ -e $SSH_KEY ]; then
+         rm -f $SSH_KEY
+  fi
+
+  # create a ssh key
+  ssh-keygen -q -t rsa -N '' -f $SSH_KEY
+  exitCode=$?
+
+  #echo `cat "$SSH_KEY.pub"`
+  return $exitCode
+}
+
+function test_scp () {
+  # if ssh_key not exist,  exit
+  if [ ! -e $SSH_KEY ]; then
+         echo "ssh key not exist!"
+         exit 1
+  fi
+
+  # scp copy log file to logserver
+  scp -Cqpi $SSH_KEY -P $PORT -o PasswordAuthentication=no -o StrictHostKeyChecking=no  $VPN_LOG_FILE $USER@$IP:$LOG_PATH 2>&1
+
+  return $?
+}
+
+
+function setup_crontab () {
+  # if ssh_key not exist,  exit
+  if [ ! -e $SSH_KEY ]; then
+         echo "ssh key not exist!"
+         exit 1
+  fi
+
+  command="scp -Cqpi $SSH_KEY -P $PORT -o PasswordAuthentication=no -o StrictHostKeyChecking=no  $VPN_LOG_FILE $USER@$IP:$LOG_PATH"
+  cronDescription="$minute $hour * * * $command > /dev/null 2>&1"
+
+  # delete current setting
+  crontab -r
+
+  # setup crontab
+  echo "$cronDescription" | crontab
+  return $?
+}
+
+# main function
+if [ $1 -eq 0 ]; then
+  ssh_gen
+else
+  IP=$2
+  PORT=$3
+  USER=$4
+  LOG_PATH=$5
+  if [ $1 -eq 1 ]; then
+    test_scp
+  else
+    minute=$6
+    hour=$7
+    setup_crontab
+  fi
+fi
+
+#!/usr/bin/python
+# coding: UTF-8
+import os
+import sys
+import subprocess
+def get_sshkey_content(src):
+    content = ""
+    if not os.path.isfile(src):
+        return content
+    with open(src) as fsrc:
+        try:
+            content = fsrc.read()
+            return content
+        except Exception as e:
+            print(e)
+            return content
+def time_parse(times):
+    results = ""
+    hourMinute = times.split(':')
+    if len(hourMinute) < 2:
+        return results
+    try:
+        hour = int(hourMinute[0])
+        minute = int(hourMinute[1])
+        if (0<=hour<=23) and (0<=minute<=59):
+            results = hourMinute[1] + " " + hourMinute[0]
+    except ValueError:
+        results = ""
+    return results
+def is_valid_port(port):
+    try:
+        intPort = int(port)
+        if (1<=intPort<=65535):
+            return 1
+    except ValueError:
+        return 0
+
+    return 0
+if __name__ == '__main__':
+    sshkey=get_sshkey_content(sys.argv[1])
+    print(sshkey)
+
+    print '!!! start'
+    s_minute_hout  = '02:00'
+    times = time_parse(s_minute_hout)
+    ip = "192.168.43.155"
+    port = "22"
+    user = "pi"
+    logPath = "/home/pi"
+    print(is_valid_port(port))
+    try:
+        retcode = subprocess.check_call("./set_scp_crontab.sh 2  %s %s %s %s %s " % (ip, port, user, logPath, times),   shell=True)
+        print(retcode)
+    except subprocess.CalledProcessError as e:
+        print e.returncode
+        print e.cmd
+        print e.output
+    print '!!! end'
+
